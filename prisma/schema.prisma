@@ -1,0 +1,184 @@
+// Data model for "Worth it?" — see /docs/product-spec.md for the product
+// semantics behind each model. Connection URL lives in prisma.config.ts.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum ItemSource {
+  SCREENSHOT
+  LINK
+  MANUAL
+}
+
+enum ItemStatus {
+  WISHLIST
+  PAUSED
+  PURCHASED
+  SKIPPED
+  RETURNED
+}
+
+enum Verdict {
+  GO_FOR_IT
+  THINK_ABOUT_IT
+  PAUSE
+  LIKELY_REGRET
+  YOU_DECIDE
+}
+
+enum CheckinResult {
+  YES
+  NOT_SURE
+  NO
+}
+
+enum PurchaseRatingValue {
+  LOVE
+  HAPPY
+  NEUTRAL
+  REGRET
+  WISH_HADNT
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model User {
+  id                String   @id @default(uuid()) @db.Uuid
+  /// Stored lower-cased by the application so uniqueness is case-insensitive.
+  email             String   @unique
+  passwordHash      String
+  /// ISO 4217 code, e.g. "USD".
+  currency          String   @default("USD") @db.VarChar(3)
+  /// Monthly discretionary budget in the user's currency. Defaulted at signup
+  /// so onboarding (users module) can set the real figure later.
+  monthlyBudget     Decimal  @default(500.00) @db.Decimal(12, 2)
+  /// Length of the cooling-off pause applied to new items unless overridden.
+  defaultPauseHours Int      @default(24)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+
+  items               Item[]
+  categoryRegretStats CategoryRegretStats[]
+  refreshTokens       RefreshToken[]
+
+  @@map("users")
+}
+
+model Item {
+  id                   String     @id @default(uuid()) @db.Uuid
+  userId               String     @db.Uuid
+  source               ItemSource
+  imageUrl             String?
+  productName          String
+  brand                String?
+  category             String
+  price                Decimal    @db.Decimal(12, 2)
+  /// True when the source contained urgency/sale phrasing ("only 2 left!").
+  detectedSaleLanguage Boolean    @default(false)
+  discoveredAt         DateTime   @default(now()) @db.Timestamptz(3)
+  status               ItemStatus @default(WISHLIST)
+  createdAt            DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime   @updatedAt @db.Timestamptz(3)
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  regretScore    RegretScore?
+  pause          Pause?
+  purchaseRating PurchaseRating?
+
+  // The dominant read path is "my items in state X", so the composite index
+  // covers both the filter and the implicit userId-only lookup via its prefix.
+  @@index([userId, status])
+  @@map("items")
+}
+
+model RegretScore {
+  id              String   @id @default(uuid()) @db.Uuid
+  itemId          String   @unique @db.Uuid
+  /// 0–100 Regret Risk score produced by the deterministic scoring engine.
+  score           Int
+  /// Array of `{ label: string, weight: number }` explaining the score.
+  factorBreakdown Json
+  verdict         Verdict
+  computedAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@map("regret_scores")
+}
+
+model Pause {
+  id            String         @id @default(uuid()) @db.Uuid
+  itemId        String         @unique @db.Uuid
+  pauseHours    Int
+  startsAt      DateTime       @default(now()) @db.Timestamptz(3)
+  endsAt        DateTime       @db.Timestamptz(3)
+  checkinResult CheckinResult?
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  // The check-in scheduler scans for pauses that have just expired.
+  @@index([endsAt])
+  @@map("pauses")
+}
+
+model PurchaseRating {
+  id      String              @id @default(uuid()) @db.Uuid
+  itemId  String              @unique @db.Uuid
+  ratedAt DateTime            @default(now()) @db.Timestamptz(3)
+  rating  PurchaseRatingValue
+  notes   String?             @db.Text
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@map("purchase_ratings")
+}
+
+model RefreshToken {
+  id                  String    @id @default(uuid()) @db.Uuid
+  userId              String    @db.Uuid
+  /// SHA-256 of the opaque refresh token. The raw token is returned to the
+  /// client once and never persisted, so a database dump yields nothing
+  /// usable. Unique so a lookup by hash can only ever match one row — the
+  /// constraint's index is also what serves those lookups.
+  tokenHash           String    @unique
+  expiresAt           DateTime  @db.Timestamptz(3)
+  revokedAt           DateTime? @db.Timestamptz(3)
+  /// Hash of the token issued in place of this one, forming the rotation
+  /// chain that makes a replayed token traceable.
+  replacedByTokenHash String?
+  createdAt           DateTime  @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Reuse detection revokes every sibling token for a user.
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model CategoryRegretStats {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  category   String
+  /// Fraction of rated purchases in this category the user regretted (0–1).
+  regretRate Float
+  sampleSize Int
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@map("category_regret_stats")
+}

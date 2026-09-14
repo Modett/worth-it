@@ -1,0 +1,237 @@
+# Worth It? — Cursor Rules & Engineering Guidelines
+
+This file is the source of truth for how Cursor should write code in this repo.
+Read it fully before generating anything. If a request conflicts with this
+file, follow this file and flag the conflict.
+
+---
+
+## 0. Product Context (for reference, not for editing)
+
+"Worth it?" is a mobile app that analyzes a screenshot/link/manual product
+entry, computes a deterministic Regret Risk score, enforces a cooling-off
+"pause" before purchase, then tracks post-purchase regret. Full V1 feature
+spec and scoring formula live in `/docs/product-spec.md` (add the earlier
+spec doc there). This file governs *how* we build it, not *what* we build.
+
+---
+
+## 1. Tech Stack (locked — do not introduce alternatives without discussion)
+
+| Layer | Choice |
+|---|---|
+| Mobile frontend | Flutter (Dart) |
+| Backend | NestJS (TypeScript, Node LTS) |
+| ORM | Prisma |
+| Primary DB | PostgreSQL (Railway) |
+| Cache / queues | Redis on Railway, via BullMQ for background jobs |
+| File/image storage | Cloudflare R2 (S3-compatible) |
+| AI — extraction tier | Claude Haiku or GPT-4o-mini (screenshot OCR + structured product/price/urgency extraction) |
+| AI — copy tier | Claude Sonnet or GPT-4o (occasional, for "why" phrasing; templated/rule-based is an acceptable substitute in V1) |
+| Auth | JWT access + refresh tokens via `@nestjs/passport` + `passport-jwt`, bcrypt for password hashing |
+| API style | REST, versioned under `/api/v1`, OpenAPI/Swagger auto-generated |
+| Testing | Jest (unit), Supertest (e2e/integration) |
+| Lint/format | ESLint + Prettier, enforced pre-commit |
+| Hosting | Railway (API service, Postgres, Redis as separate Railway services) |
+| Push notifications | Firebase Cloud Messaging (via a notification module, queued through BullMQ) |
+| Logging | `nestjs-pino` structured JSON logs |
+| Config | `@nestjs/config` with validated env schema (no raw `process.env` in business logic) |
+
+Do not add a new library, service, or pattern outside this table without
+calling it out explicitly in the response — don't silently swap e.g. Prisma
+for TypeORM, or REST for GraphQL.
+
+---
+
+## 2. Architecture Principles
+
+**Modular monolith, not microservices — for now.** At current and
+near-term scale, a well-structured NestJS modular monolith deployed as
+multiple stateless Railway instances behind a load balancer will comfortably
+handle millions of users if the database and cache layers are designed
+correctly. Do not introduce microservices, message brokers between services,
+or separate deployables until a specific module has a proven independent
+scaling need. Premature service-splitting adds operational cost without
+benefit at this stage.
+
+**Design for horizontal scale from day one:**
+- The API layer must be **stateless** — no in-memory session state, no
+  in-process caches that aren't safe under multiple replicas. Session/auth
+  state lives in Redis or in the signed JWT itself.
+- All expensive or slow work (AI extraction calls, notification dispatch,
+  regret-score recomputation, category-stats aggregation) goes through a
+  **BullMQ queue**, never inline in the request/response cycle.
+- Database access goes through Prisma with **connection pooling**
+  configured for the target deployment (Railway's connection limits) —
+  never open ad-hoc raw connections.
+- Anything read far more often than it's written (e.g. a user's current
+  Regret Risk weights/config) should be cached in Redis with an explicit
+  TTL and invalidation path — never cached "by accident" with no eviction
+  strategy.
+- Rate limiting (per-user and per-IP) is mandatory on all public-facing
+  mutating endpoints from the first implementation, using Redis-backed
+  throttling (`@nestjs/throttler` with a Redis store).
+
+**Feature-module structure.** Each domain concept is its own NestJS module
+with its own controller, service, DTOs, and tests:
+```
+src/
+  modules/
+    users/
+    items/
+    scoring/
+    pauses/
+    ratings/
+    notifications/
+    ai/              <- wraps the extraction/copy AI calls, isolated behind an interface
+  common/
+    guards/
+    interceptors/
+    filters/
+    decorators/
+    pipes/
+  config/
+  prisma/
+```
+The `ai` module must expose a clean interface (e.g. `AiExtractionService`,
+`AiCopyService`) so the underlying model/provider can be swapped without
+touching calling code — never call an AI SDK directly from a feature
+module's business logic.
+
+---
+
+## 3. Code Quality Standards
+
+- **TypeScript strict mode on** — no `any` without an explicit inline
+  comment justifying it. Prefer proper types/interfaces/DTOs over casting.
+- **DTOs + validation on every input**, using `class-validator` /
+  `class-transformer`. No controller should trust raw request bodies.
+- **SOLID principles**, specifically: services do one thing; controllers
+  contain no business logic (delegate to services); dependencies are
+  injected, not imported/instantiated directly, so they're mockable in
+  tests.
+- **Consistent error handling**: use NestJS exception filters and a small
+  set of well-defined domain exceptions (e.g. `ItemNotFoundException`,
+  `InvalidPauseStateException`) — never leak raw Prisma/DB errors or stack
+  traces to API responses. Every error response follows one consistent
+  shape (`{ statusCode, message, error, timestamp, path }`).
+- **No magic numbers/strings** — scoring weights, pause thresholds, and
+  similar tunables live in a single versioned config object (see product
+  spec §4), not scattered through the codebase.
+- **Naming**: descriptive, no abbreviations beyond well-known ones (`id`,
+  `dto`, `req`, `res`). Files: `kebab-case.ts`. Classes: `PascalCase`.
+  Variables/functions: `camelCase`.
+- **Comments explain why, not what** — code should be readable enough that
+  inline comments are rare; when present, they justify a non-obvious
+  decision (e.g. why a particular index or cache TTL was chosen).
+
+---
+
+## 4. Testing Requirements (non-negotiable per your workflow)
+
+Every module ships with tests **before it's considered done** — this is
+not an optional cleanup pass at the end.
+
+- **Unit tests** (Jest) for every service method, covering the happy path
+  and at least one failure/edge case. Mock Prisma and external AI calls —
+  unit tests never hit a real database or a real AI API.
+- **Integration/e2e tests** (Supertest against a test NestJS app instance)
+  for every controller endpoint, covering auth failure, validation
+  failure, and success paths. Use a dedicated test database (docker-compose
+  or a Railway staging Postgres), never the dev/prod database.
+- **Minimum bar before moving to the next module**: all tests pass, no
+  skipped/pending tests left behind, and the new module's test coverage is
+  visible in the test run output.
+- When Cursor generates a new module, it should generate its `.spec.ts`
+  test file in the same step, not as a follow-up request.
+- Run `npm run test` and `npm run test:e2e` and report the results before
+  declaring a subsection complete.
+
+---
+
+## 5. Security Baseline
+
+- Passwords hashed with bcrypt (cost factor ≥ 12); never stored or logged
+  in plaintext.
+- JWT access tokens short-lived (e.g. 15 min), refresh tokens
+  longer-lived and stored hashed, with rotation on use.
+- All endpoints require explicit `@Public()` opt-out — default to
+  authenticated, not the other way around.
+- Input validation on every DTO; output serialization via
+  `class-transformer` `@Exclude()` on sensitive fields (never manually
+  strip fields ad hoc).
+- Secrets only via environment variables validated at boot
+  (`@nestjs/config` schema) — the app should fail fast on startup if a
+  required secret is missing, not fail later at first use.
+- No PII or financial data in logs. Log identifiers (e.g. `userId`,
+  `itemId`), never raw purchase content in plaintext log lines beyond
+  what's needed for debugging.
+
+---
+
+## 6. API Conventions
+
+- Base path `/api/v1`; breaking changes get a new version path, not a
+  silent change to `v1`.
+- Swagger/OpenAPI docs auto-generated and kept accurate — every new
+  endpoint gets `@ApiOperation`/`@ApiResponse` decorators as part of the
+  same commit that adds it.
+- Pagination on every list endpoint (cursor-based, not offset-based, for
+  scale) — no unbounded `findMany`.
+- Idempotency: mutating endpoints that could be retried by a flaky mobile
+  connection (e.g. "record purchase") accept an idempotency key.
+
+---
+
+## 7. Git & Workflow
+
+- Conventional Commits (`feat:`, `fix:`, `test:`, `chore:`, `refactor:`).
+- One module/feature per branch and PR where practical.
+- Every PR description states: what was built, what tests were added, and
+  the test run result.
+- No merging with failing or skipped tests.
+
+---
+
+## 8. Build Order (matches the agreed development pipeline)
+
+Build and fully test each step before moving to the next:
+
+1. **Project scaffold** — NestJS app, Prisma + Postgres connection, Redis
+   connection, env config validation, health-check endpoint, CI running
+   lint + tests on every push.
+2. **Auth module** — signup/login/refresh, JWT guards, tests.
+3. **Users module** — profile, budget/pause preferences, tests.
+4. **Items module** — create item (manual/link first, screenshot deferred
+   to step 6), item states, tests.
+5. **Scoring module** — deterministic Regret Risk engine (pure functions,
+   easy to unit test exhaustively), tests.
+6. **AI module** — screenshot extraction (cheap tier) behind an interface,
+   with a mocked provider for tests and a real provider wired via config.
+7. **Pauses module** — pause creation, expiry, check-in flow, BullMQ job
+   for scheduled check-in notifications, tests.
+8. **Ratings module** — 30-day post-purchase rating flow, category regret
+   stats aggregation job, tests.
+9. **Notifications module** — FCM integration, queued dispatch, tests.
+10. **Dashboard/aggregate endpoints** — "$ avoided," purchase health %,
+    backed by cached/precomputed values where read-heavy, tests.
+11. **Load/perf pass** — basic load test (e.g. k6 or autocannon) against
+    the critical read paths (dashboard, item creation) before declaring
+    the backend "done," with rate limiting and caching verified under load.
+
+Only after step 11 do we move to Flutter UI screens per the earlier
+screen-by-screen spec, then wire each screen to its corresponding endpoint
+one at a time.
+
+---
+
+## 9. What Cursor should do differently from a generic scaffold
+
+- Don't generate a "kitchen sink" module with everything in one file —
+  always split controller/service/DTOs/tests per the structure in §2.
+- Don't call an AI provider SDK directly from a controller or feature
+  service — always through the `ai` module's interface.
+- Don't hardcode scoring weights inline — pull from the shared config
+  object described in the product spec.
+- Don't skip writing tests "to save time" — flag it explicitly if asked to
+  skip them rather than silently omitting them.

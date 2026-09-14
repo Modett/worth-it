@@ -1,0 +1,37 @@
+# Local Postgres + Redis for development and e2e tests. Matches the versions
+# used by the CI service containers in .github/workflows/ci.yml.
+#
+#   docker compose up -d
+#   npm run prisma:migrate:dev          # dev database
+#   npm run test:e2e                    # migrates + tests against worthit_test
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: worthit
+      POSTGRES_PASSWORD: worthit
+      POSTGRES_DB: worthit
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/create-test-database.sql:/docker-entrypoint-initdb.d/10-create-test-database.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U worthit -d worthit']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:

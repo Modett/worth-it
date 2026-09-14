@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+coverage/
+*.tsbuildinfo
+
+# prisma generated client (regenerated on `npm install` via postinstall)
+src/generated/
+
+# environment
+.env
+.env.*
+!.env.example
+!.env.test
+
+# logs
+logs/
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
