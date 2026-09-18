@@ -50,6 +50,17 @@ use; presenting an already-used refresh token is treated as theft and revokes
 every active session for that user. Signup and login are limited to 5 requests
 per minute per IP. Tunables live in `src/modules/auth/auth.config.ts`.
 
+## Items from a screenshot
+
+`POST /api/v1/items/from-screenshot` accepts a JPEG, PNG or WebP upload (max
+8MB), stores the original in Cloudflare R2, and runs the extraction provider
+bound to `AI_EXTRACTION_SERVICE` (GPT-5 Mini today). High-confidence results
+create the item; low-confidence results return a pre-filled draft for
+`POST /api/v1/items` with `source: SCREENSHOT`. The route is limited to 5
+requests per minute per IP.
+
+Tunables live in `src/modules/ai/ai.config.ts` and `ITEMS_CONFIG.screenshot`.
+
 ## Testing
 
 ```bash

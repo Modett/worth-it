@@ -1,2 +1,5 @@
-npx lint-staged
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+lint-staged
 npm run test -- --silent

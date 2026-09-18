@@ -2,9 +2,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
 import { AUTH_CONFIG } from '../auth.config';
 
-// bcrypt only hashes the first 72 bytes, so anything longer is silently
-// truncated; reject it instead of pretending the extra characters count.
-const PASSWORD_MAX_LENGTH = 72;
 const EMAIL_MAX_LENGTH = 254;
 
 export class SignupDto {
@@ -16,10 +13,10 @@ export class SignupDto {
   @ApiProperty({
     example: 'correct-horse-battery',
     minLength: AUTH_CONFIG.passwordMinLength,
-    maxLength: PASSWORD_MAX_LENGTH,
+    maxLength: AUTH_CONFIG.passwordMaxLength,
   })
   @IsString()
   @MinLength(AUTH_CONFIG.passwordMinLength)
-  @MaxLength(PASSWORD_MAX_LENGTH)
+  @MaxLength(AUTH_CONFIG.passwordMaxLength)
   password!: string;
 }

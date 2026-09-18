@@ -25,5 +25,9 @@ import { TokenService } from './token.service';
   ],
   controllers: [AuthController],
   providers: [AuthService, PasswordService, TokenService, JwtStrategy],
+  // Feature modules that verify a password or end a user's sessions (users
+  // module: password change, account deletion) reuse these rather than
+  // reimplementing hashing or the revocation query.
+  exports: [PasswordService, TokenService],
 })
 export class AuthModule {}

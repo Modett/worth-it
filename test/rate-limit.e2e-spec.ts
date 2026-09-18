@@ -6,7 +6,7 @@ import type { Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { configureApp } from '../src/app.setup';
+import { configureApp, NEST_FACTORY_OPTIONS } from '../src/app.setup';
 import { Public } from '../src/common/decorators/public.decorator';
 import { ErrorResponse } from '../src/common/filters/error-response.interface';
 
@@ -49,7 +49,7 @@ describe('Redis-backed rate limiting (e2e)', () => {
       controllers: [ThrottleProbeController, ProtectedProbeController],
     }).compile();
     app = configureApp(
-      moduleRef.createNestApplication<NestExpressApplication>({ bufferLogs: true }),
+      moduleRef.createNestApplication<NestExpressApplication>(NEST_FACTORY_OPTIONS),
     );
     await app.init();
     server = app.getHttpServer() as Server;

@@ -19,6 +19,8 @@ const validEnvironment: Record<string, string> = {
   R2_ACCESS_KEY: 'r2-access',
   R2_SECRET_KEY: 'r2-secret',
   R2_BUCKET: 'bucket',
+  R2_ENDPOINT: 'https://example.r2.cloudflarestorage.com',
+  R2_PUBLIC_BASE_URL: 'https://cdn.example.test',
 };
 
 const REQUIRED_KEYS = [
@@ -31,6 +33,8 @@ const REQUIRED_KEYS = [
   'R2_ACCESS_KEY',
   'R2_SECRET_KEY',
   'R2_BUCKET',
+  'R2_ENDPOINT',
+  'R2_PUBLIC_BASE_URL',
   'PORT',
 ] as const;
 
@@ -47,6 +51,7 @@ describe('validateEnvironment', () => {
     expect(result.DATABASE_POOL_MAX).toBe(10);
     expect(result.THROTTLE_TTL_SECONDS).toBe(60);
     expect(result.THROTTLE_LIMIT).toBe(100);
+    expect(result.AI_EXTRACTION_PROVIDER).toBe('openai');
   });
 
   it.each(REQUIRED_KEYS)('fails when required variable %s is missing', (key) => {
@@ -82,6 +87,12 @@ describe('validateEnvironment', () => {
     ).toThrow(/"DATABASE_URL"/);
     expect(() => validateEnvironment({ ...validEnvironment, NODE_ENV: 'staging' })).toThrow(
       /"NODE_ENV" must be one of/,
+    );
+    expect(() =>
+      validateEnvironment({ ...validEnvironment, AI_EXTRACTION_PROVIDER: 'anthropic' }),
+    ).toThrow(/"AI_EXTRACTION_PROVIDER"/);
+    expect(() => validateEnvironment({ ...validEnvironment, R2_ENDPOINT: 'not-a-url' })).toThrow(
+      /"R2_ENDPOINT"/,
     );
   });
 

@@ -8,6 +8,24 @@ export const API_DEFAULT_VERSION = '1';
 export const SWAGGER_PATH = 'api/docs';
 
 /**
+ * Shared NestFactory options so production and e2e register the same HTTP
+ * stack. `bodyParser` is off because configureApp installs parsers with a
+ * limit that can accept a screenshot; Nest's 100kb default would 413 first.
+ */
+export const NEST_FACTORY_OPTIONS = {
+  bufferLogs: true,
+  bodyParser: false,
+} as const;
+
+/**
+ * Express's JSON/urlencoded parsers reject by Content-Length before they look
+ * at Content-Type. This has to sit above the screenshot upload cap (8MB) so an
+ * oversized image reaches Multer, which turns it into a 400, rather than a
+ * generic 413 from the body parser.
+ */
+export const HTTP_BODY_LIMIT = '9mb';
+
+/**
  * Railway terminates TLS at its edge proxy and forwards to the app, so exactly
  * one hop is trusted: `req.ip` (used for rate-limit keys) becomes the real
  * client address while client-supplied X-Forwarded-For values are ignored.
@@ -23,6 +41,8 @@ export function configureApp(app: NestExpressApplication): INestApplication {
   app.useLogger(app.get(Logger));
   app.enableShutdownHooks();
   app.set('trust proxy', TRUSTED_PROXY_HOPS);
+  app.useBodyParser('json', { limit: HTTP_BODY_LIMIT });
+  app.useBodyParser('urlencoded', { limit: HTTP_BODY_LIMIT, extended: true });
 
   // Routes resolve to /api/v1/...; a future breaking change ships as v2
   // alongside v1 rather than mutating it (.cursorrules §6).

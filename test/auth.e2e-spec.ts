@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { configureApp } from '../src/app.setup';
+import { configureApp, NEST_FACTORY_OPTIONS } from '../src/app.setup';
 import { ErrorResponse } from '../src/common/filters/error-response.interface';
 import { AUTH_CONFIG } from '../src/modules/auth/auth.config';
 import { AuthTokensDto } from '../src/modules/auth/dto/auth-tokens.dto';
@@ -24,7 +24,7 @@ describe('Auth (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = configureApp(
-      moduleRef.createNestApplication<NestExpressApplication>({ bufferLogs: true }),
+      moduleRef.createNestApplication<NestExpressApplication>(NEST_FACTORY_OPTIONS),
     );
     await app.init();
     server = app.getHttpServer() as Server;

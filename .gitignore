@@ -15,6 +15,15 @@ src/generated/
 !.env.example
 !.env.test
 
+# local e2e Postgres/Redis data (no Docker on this machine)
+.e2e-scratch/
+
+# local e2e Postgres/Redis data (no Docker on this machine)
+.e2e-scratch/
+
+# local e2e Postgres/Redis data (no Docker on this machine)
+.e2e-scratch/
+
 # logs
 logs/
 *.log

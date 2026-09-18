@@ -81,6 +81,9 @@ model Item {
   id                   String     @id @default(uuid()) @db.Uuid
   userId               String     @db.Uuid
   source               ItemSource
+  /// Product page the item was captured from. Set for LINK items only; MANUAL
+  /// entries have no URL, and SCREENSHOT capture arrives with the AI module.
+  sourceUrl            String?
   imageUrl             String?
   productName          String
   brand                String?
@@ -101,6 +104,10 @@ model Item {
   // The dominant read path is "my items in state X", so the composite index
   // covers both the filter and the implicit userId-only lookup via its prefix.
   @@index([userId, status])
+  // The item list defaults to newest-first within one user, and its keyset
+  // pagination compares (discoveredAt, id) — both served by this index rather
+  // than by sorting the user's whole collection on every page.
+  @@index([userId, discoveredAt])
   @@map("items")
 }
 

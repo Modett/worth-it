@@ -29,6 +29,13 @@ export const AUTH_CONFIG = {
   passwordMinLength: 8,
 
   /**
+   * bcrypt only hashes the first 72 bytes, so anything longer is silently
+   * truncated; every password DTO rejects it instead of pretending the extra
+   * characters count.
+   */
+  passwordMaxLength: 72,
+
+  /**
    * Signup and login are the brute-force surface, so they get a much tighter
    * per-IP budget than the global default (THROTTLE_LIMIT).
    */

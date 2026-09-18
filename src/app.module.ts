@@ -11,7 +11,11 @@ import { AppConfigModule } from './config/app-config.module';
 import { EnvironmentVariables } from './config/env.validation';
 import { LoggingModule } from './logging/logging.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { AiModule } from './modules/ai/ai.module';
 import { HealthModule } from './modules/health/health.module';
+import { ItemsModule } from './modules/items/items.module';
+import { ScoringModule } from './modules/scoring/scoring.module';
+import { UsersModule } from './modules/users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { REDIS_CLIENT } from './redis/redis.constants';
 import { RedisModule } from './redis/redis.module';
@@ -36,7 +40,11 @@ import { RedisModule } from './redis/redis.module';
       }),
     }),
     AuthModule,
+    AiModule,
     HealthModule,
+    ItemsModule,
+    ScoringModule,
+    UsersModule,
   ],
   providers: [
     { provide: APP_PIPE, useFactory: createValidationPipe },

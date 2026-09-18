@@ -161,10 +161,7 @@ export class AuthService {
    * force a fresh login.
    */
   private async handleRefreshTokenReuse(userId: string): Promise<void> {
-    const { count } = await this.prismaService.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    const count = await this.tokenService.revokeAllForUser(userId);
 
     // userId only — never the token or any other identifying material (§5).
     this.logger.warn(

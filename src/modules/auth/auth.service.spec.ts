@@ -33,6 +33,7 @@ describe('AuthService', () => {
     signAccessToken: jest.Mock;
     generateRefreshToken: jest.Mock;
     hashRefreshToken: jest.Mock;
+    revokeAllForUser: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -60,6 +61,7 @@ describe('AuthService', () => {
       signAccessToken: jest.fn().mockResolvedValue(ACCESS_TOKEN),
       generateRefreshToken: jest.fn(),
       hashRefreshToken: jest.fn((token: string) => `sha256(${token})`),
+      revokeAllForUser: jest.fn().mockResolvedValue(0),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -292,18 +294,17 @@ describe('AuthService', () => {
       refreshTokenDelegate.findUnique.mockResolvedValue(
         storedRefreshToken({ revokedAt: new Date(Date.now() - 60_000) }),
       );
-      refreshTokenDelegate.updateMany.mockResolvedValue({ count: 3 });
+      tokenService.revokeAllForUser.mockResolvedValue(3);
 
       await expect(service.refresh(RAW_REFRESH_TOKEN)).rejects.toThrow(
         InvalidRefreshTokenException,
       );
 
-      expect(refreshTokenDelegate.updateMany).toHaveBeenCalledTimes(1);
-      const [[args]] = refreshTokenDelegate.updateMany.mock.calls as [
-        [{ where: Record<string, unknown>; data: Record<string, unknown> }],
-      ];
-      expect(args.where).toEqual({ userId: USER_ID, revokedAt: null });
-      expect(args.data.revokedAt).toBeInstanceOf(Date);
+      // Delegated to TokenService, which owns the one revocation query the
+      // users module reuses; the query itself is asserted in its own spec.
+      expect(tokenService.revokeAllForUser).toHaveBeenCalledTimes(1);
+      expect(tokenService.revokeAllForUser).toHaveBeenCalledWith(USER_ID);
+      expect(refreshTokenDelegate.updateMany).not.toHaveBeenCalled();
 
       // No new session is handed out to whoever replayed the token.
       expect(refreshTokenDelegate.create).not.toHaveBeenCalled();
@@ -313,7 +314,7 @@ describe('AuthService', () => {
       refreshTokenDelegate.findUnique.mockResolvedValue(
         storedRefreshToken({ revokedAt: new Date() }),
       );
-      refreshTokenDelegate.updateMany.mockResolvedValue({ count: 2 });
+      tokenService.revokeAllForUser.mockResolvedValue(2);
 
       await service.refresh(RAW_REFRESH_TOKEN).catch(() => undefined);
 

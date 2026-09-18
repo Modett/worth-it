@@ -6,6 +6,9 @@ export type NodeEnvironment = (typeof NODE_ENVIRONMENTS)[number];
 export const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
+export const AI_EXTRACTION_PROVIDERS = ['openai'] as const;
+export type AiExtractionProviderName = (typeof AI_EXTRACTION_PROVIDERS)[number];
+
 /**
  * Fully validated, typed view of the process environment. Business code
  * reads these through `ConfigService<EnvironmentVariables, true>` — never
@@ -25,10 +28,20 @@ export interface EnvironmentVariables {
 
   AI_EXTRACTION_API_KEY: string;
   AI_COPY_API_KEY: string;
+  /**
+   * Which extraction implementation `AI_EXTRACTION_SERVICE` resolves to. A new
+   * provider is a new allowed value here plus a branch in AiModule — callers
+   * keep injecting the token.
+   */
+  AI_EXTRACTION_PROVIDER: AiExtractionProviderName;
 
   R2_ACCESS_KEY: string;
   R2_SECRET_KEY: string;
   R2_BUCKET: string;
+  /** S3 API endpoint, e.g. `https://<accountid>.r2.cloudflarestorage.com`. */
+  R2_ENDPOINT: string;
+  /** Public base URL used to store `Item.imageUrl` after an upload. */
+  R2_PUBLIC_BASE_URL: string;
 
   THROTTLE_TTL_SECONDS: number;
   THROTTLE_LIMIT: number;
@@ -40,6 +53,7 @@ const DEFAULTS = {
   DATABASE_POOL_MAX: 10,
   THROTTLE_TTL_SECONDS: 60,
   THROTTLE_LIMIT: 100,
+  AI_EXTRACTION_PROVIDER: 'openai',
 } as const;
 
 // Secrets shorter than this are trivially brute-forceable; refuse them at boot
@@ -74,10 +88,19 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
 
   AI_EXTRACTION_API_KEY: Joi.string().required(),
   AI_COPY_API_KEY: Joi.string().required(),
+  AI_EXTRACTION_PROVIDER: Joi.string()
+    .valid(...AI_EXTRACTION_PROVIDERS)
+    .default(DEFAULTS.AI_EXTRACTION_PROVIDER),
 
   R2_ACCESS_KEY: Joi.string().required(),
   R2_SECRET_KEY: Joi.string().required(),
   R2_BUCKET: Joi.string().required(),
+  R2_ENDPOINT: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .required(),
+  R2_PUBLIC_BASE_URL: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .required(),
 
   THROTTLE_TTL_SECONDS: Joi.number().integer().min(1).default(DEFAULTS.THROTTLE_TTL_SECONDS),
   THROTTLE_LIMIT: Joi.number().integer().min(1).default(DEFAULTS.THROTTLE_LIMIT),

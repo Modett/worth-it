@@ -4,7 +4,7 @@ import { Test } from '@nestjs/testing';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { configureApp } from '../src/app.setup';
+import { configureApp, NEST_FACTORY_OPTIONS } from '../src/app.setup';
 import { ErrorResponse } from '../src/common/filters/error-response.interface';
 import { HealthResponseDto } from '../src/modules/health/dto/health-response.dto';
 
@@ -15,7 +15,7 @@ describe('GET /api/v1/health (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = configureApp(
-      moduleRef.createNestApplication<NestExpressApplication>({ bufferLogs: true }),
+      moduleRef.createNestApplication<NestExpressApplication>(NEST_FACTORY_OPTIONS),
     );
     await app.init();
     server = app.getHttpServer() as Server;

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
+import { PrismaService } from '../../prisma/prisma.service';
 import { AUTH_CONFIG, MILLISECONDS_PER_DAY } from './auth.config';
 import { JwtPayload } from './types/jwt-payload.interface';
 
@@ -12,9 +13,18 @@ export interface GeneratedRefreshToken {
   expiresAt: Date;
 }
 
+/**
+ * The slice of the Prisma client `revokeAllForUser` needs, so callers can hand
+ * it either the shared client or their own transaction client.
+ */
+export type RefreshTokenClient = Pick<PrismaService, 'refreshToken'>;
+
 @Injectable()
 export class TokenService {
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly prismaService: PrismaService,
+  ) {}
 
   signAccessToken(userId: string): Promise<string> {
     const payload: JwtPayload = { sub: userId };
@@ -40,5 +50,25 @@ export class TokenService {
    */
   hashRefreshToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
+  }
+
+  /**
+   * Ends every live session for a user and reports how many were cut off.
+   * Shared by refresh-token reuse detection (AuthService) and password changes
+   * (UsersService) so there is one definition of "log this user out everywhere".
+   *
+   * Pass `client` to enlist the revocation in a caller's transaction, so it
+   * cannot succeed while the change that motivated it rolls back.
+   */
+  async revokeAllForUser(
+    userId: string,
+    client: RefreshTokenClient = this.prismaService,
+  ): Promise<number> {
+    const { count } = await client.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    return count;
   }
 }

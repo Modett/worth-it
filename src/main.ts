@@ -3,12 +3,12 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { configureApp, SWAGGER_PATH } from './app.setup';
+import { configureApp, NEST_FACTORY_OPTIONS, SWAGGER_PATH } from './app.setup';
 import { EnvironmentVariables } from './config/env.validation';
 
 async function bootstrap(): Promise<void> {
   // Buffer until the pino logger is attached so even boot logs are JSON.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, NEST_FACTORY_OPTIONS);
   configureApp(app);
 
   const configService = app.get(ConfigService<EnvironmentVariables, true>);

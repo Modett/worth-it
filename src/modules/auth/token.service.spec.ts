@@ -1,18 +1,26 @@
 import { JwtService } from '@nestjs/jwt';
 import { createHash } from 'node:crypto';
+import { PrismaService } from '../../prisma/prisma.service';
 import { AUTH_CONFIG, MILLISECONDS_PER_DAY } from './auth.config';
-import { TokenService } from './token.service';
+import { RefreshTokenClient, TokenService } from './token.service';
 import { JwtPayload } from './types/jwt-payload.interface';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('TokenService', () => {
   let jwtService: { signAsync: jest.Mock };
+  let refreshTokenDelegate: { updateMany: jest.Mock };
   let service: TokenService;
 
   beforeEach(() => {
     jwtService = { signAsync: jest.fn().mockResolvedValue('signed.jwt') };
-    service = new TokenService(jwtService as unknown as JwtService);
+    refreshTokenDelegate = { updateMany: jest.fn().mockResolvedValue({ count: 0 }) };
+    service = new TokenService(
+      jwtService as unknown as JwtService,
+      {
+        refreshToken: refreshTokenDelegate,
+      } as unknown as PrismaService,
+    );
   });
 
   describe('signAccessToken', () => {
@@ -65,6 +73,40 @@ describe('TokenService', () => {
 
     it('returns a 64-character hex SHA-256 digest', () => {
       expect(service.hashRefreshToken('a-token')).toMatch(/^[0-9a-f]{64}$/);
+    });
+  });
+
+  describe('revokeAllForUser', () => {
+    it("revokes only the user's own tokens, and only those still live", async () => {
+      refreshTokenDelegate.updateMany.mockResolvedValue({ count: 3 });
+
+      await expect(service.revokeAllForUser(USER_ID)).resolves.toBe(3);
+
+      const [[args]] = refreshTokenDelegate.updateMany.mock.calls as [
+        [{ where: Record<string, unknown>; data: Record<string, unknown> }],
+      ];
+      expect(args.where).toEqual({ userId: USER_ID, revokedAt: null });
+      expect(args.data.revokedAt).toBeInstanceOf(Date);
+    });
+
+    it('reports zero when the user had no live sessions', async () => {
+      refreshTokenDelegate.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.revokeAllForUser(USER_ID)).resolves.toBe(0);
+    });
+
+    it("runs against a caller's transaction client when one is supplied", async () => {
+      const transactionDelegate = { updateMany: jest.fn().mockResolvedValue({ count: 1 }) };
+
+      await expect(
+        service.revokeAllForUser(USER_ID, {
+          refreshToken: transactionDelegate,
+        } as unknown as RefreshTokenClient),
+      ).resolves.toBe(1);
+
+      expect(transactionDelegate.updateMany).toHaveBeenCalledTimes(1);
+      // The revocation must not escape the caller's transaction.
+      expect(refreshTokenDelegate.updateMany).not.toHaveBeenCalled();
     });
   });
 });
